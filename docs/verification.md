@@ -4,7 +4,7 @@ Executed on 2026-10-28 with a fresh temporary virtual environment using Python 3
 
 ## Tests and sample
 
-Command: `pytest -q` from the fresh environment. Result: **20 passed**.
+Command: `pytest -q` from the fresh environment. Result: **21 passed**. `ruff check src tests scripts` and `ruff format --check src tests scripts` also passed; Ruff was installed into the temporary audit environment only and is not a project runtime dependency.
 
 The documented generator command `suppliersync generate --output data/input --records 40 --seed 1729` generated 24 CSV records and 24 JSON records (48 total, including eight edge-case rows), with 10 mapped canonical product IDs. The fresh-database `run` command reported 48 input, 42 accepted, 6 rejected, 0 duplicate, 0 unprocessed, 10 inserted and 10 published. Reconciliation balanced. The CSV export and database report CLI were also run.
 
@@ -16,7 +16,7 @@ Transaction failure and recovery were executed through pytest with the injected 
 
 ## Benchmark
 
-Command: `python scripts/benchmark.py --records 100000` in the fresh installed environment. This generated 100,008 total records (100,000 requested plus eight deterministic edge rows). The run accepted **100,002**, rejected **6**, had **0** duplicates, and published **25,000** products. Measured wall time including generation was **4.110 seconds**, for **24,333.9 records/second**. Pipeline-only duration reported by the run was **4.069416 seconds**. These measurements describe this environment and are not a performance guarantee.
+Command: `python scripts/benchmark.py --records 100000` in the fresh installed environment. This generated 100,008 total records (100,000 requested plus eight deterministic edge rows). The run accepted **100,002**, rejected **6**, had **0** duplicates, and published **25,000** products. Measured wall time including generation was **3.787 seconds**, for **26,411.1 records/second**. Pipeline-only duration reported by the run was **3.746116 seconds**. These measurements describe this environment and are not a performance guarantee.
 
 ## Known scope limits
 
