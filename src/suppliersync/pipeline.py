@@ -87,7 +87,7 @@ def read_inputs(directory: str | Path) -> list[tuple[str, str, dict[str, Any], s
         if path.suffix.lower() == ".csv":
             try:
                 with path.open(newline="", encoding="utf-8-sig") as f:
-                    reader = csv.DictReader(f, strict=True)
+                    reader = csv.DictReader(f, strict=True, restkey="_extra_fields")
                     for i, row in enumerate(reader, 2):
                         records.append((supplier, path.name, dict(row), str(row.get("source_record_id") or i)))
             except (OSError, csv.Error, UnicodeError) as exc:

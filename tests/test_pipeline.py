@@ -129,3 +129,13 @@ def test_malformed_csv_file_is_quarantined(tmp_path):
     with connect(tmp_path / "db.sqlite") as db:
         assert "malformed_record" in db.execute("select reason from quarantine").fetchone()[0]
 
+
+def test_unheaded_extra_csv_values_remain_in_lineage(tmp_path):
+    inp = setup_feed(tmp_path)
+    (inp / "supplier_a.csv").write_text("source_record_id,sku,name,category,price,currency,updated_at\n1,A1,Gadget,electronics,10,USD,2025-01-01T00:00:00Z,extra\n")
+    result = run_pipeline(inp, tmp_path / "db.sqlite")
+    assert result["accepted_count"] == 1
+    with connect(tmp_path / "db.sqlite") as db:
+        raw = json.loads(db.execute("select raw_json from source_events").fetchone()[0])
+        assert raw["_extra_fields"] == ["extra"]
+
