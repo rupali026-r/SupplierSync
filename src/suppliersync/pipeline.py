@@ -11,7 +11,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 LOG = logging.getLogger("suppliersync")
 SCHEMA = """
@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
  run_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL,
  input_count INTEGER NOT NULL DEFAULT 0, accepted_count INTEGER NOT NULL DEFAULT 0,
  rejected_count INTEGER NOT NULL DEFAULT 0, duplicate_count INTEGER NOT NULL DEFAULT 0,
+ unprocessed_count INTEGER NOT NULL DEFAULT 0,
  inserted_count INTEGER NOT NULL DEFAULT 0, updated_count INTEGER NOT NULL DEFAULT 0,
  unchanged_count INTEGER NOT NULL DEFAULT 0, published_count INTEGER NOT NULL DEFAULT 0,
  duration_seconds REAL, error TEXT
@@ -63,6 +64,10 @@ def connect(path: str | Path) -> sqlite3.Connection:
     db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
+    columns = {row[1] for row in db.execute("PRAGMA table_info(pipeline_runs)")}
+    if "unprocessed_count" not in columns:
+        db.execute("ALTER TABLE pipeline_runs ADD COLUMN unprocessed_count INTEGER NOT NULL DEFAULT 0")
+        db.commit()
     return db
 
 
@@ -142,14 +147,16 @@ def normalize(supplier: str, raw: dict[str, Any], mappings: dict[str, str] | Non
 def run_pipeline(input_dir: str | Path, db_path: str | Path, report_path: str | Path | None = None, fail_after: int | None = None) -> dict[str, Any]:
     started = time.perf_counter(); started_at = utc_now(); run_id = str(uuid.uuid4())
     records = read_inputs(input_dir)
-    mapping_path = Path(input_dir).parent / "reference" / "product_mappings.json"
-    mappings = json.loads(mapping_path.read_text(encoding="utf-8")) if mapping_path.exists() else None
     db = connect(db_path)
-    counts = dict(input_count=len(records), accepted_count=0, rejected_count=0, duplicate_count=0, inserted_count=0, updated_count=0, unchanged_count=0, published_count=0)
+    counts = dict(input_count=len(records), accepted_count=0, rejected_count=0, duplicate_count=0, unprocessed_count=0, inserted_count=0, updated_count=0, unchanged_count=0, published_count=0)
     db.execute("INSERT INTO pipeline_runs(run_id,started_at,status,input_count) VALUES(?,?,?,?)", (run_id, started_at, "running", len(records)))
     db.commit()
     try:
         db.execute("BEGIN IMMEDIATE")
+        mapping_path = Path(input_dir).parent / "reference" / "product_mappings.json"
+        mappings = json.loads(mapping_path.read_text(encoding="utf-8")) if mapping_path.exists() else None
+        if mappings is not None and (not isinstance(mappings, dict) or any(not isinstance(k, str) or not isinstance(v, str) or not v.strip() for k, v in mappings.items())):
+            raise ValueError("product_mappings.json must be an object of non-empty string IDs")
         candidates: dict[str, list[tuple[dict[str, Any], str, str, str, str, str]]] = {}
         seen_source_keys: set[tuple[str, str]] = set()
         for supplier, source_file, raw, source_id in records:
@@ -204,10 +211,14 @@ def run_pipeline(input_dir: str | Path, db_path: str | Path, report_path: str | 
         status, error = "succeeded", None
     except Exception as exc:
         db.rollback(); status, error = "failed", f"{type(exc).__name__}: {exc}"
-        LOG.exception("pipeline run failed", extra={"run_id": run_id})
+        # Counts in a failed publication describe committed facts; the rest are explicitly unprocessed.
+        counts["unprocessed_count"] = max(0, counts["input_count"] - counts["duplicate_count"])
+        counts["accepted_count"] = counts["rejected_count"] = 0
+        counts["inserted_count"] = counts["updated_count"] = counts["unchanged_count"] = 0
+        counts["published_count"] = db.execute("SELECT COUNT(*) FROM products").fetchone()[0]
     finished = utc_now(); duration = time.perf_counter() - started
-    db.execute("UPDATE pipeline_runs SET finished_at=?,status=?,input_count=?,accepted_count=?,rejected_count=?,duplicate_count=?,inserted_count=?,updated_count=?,unchanged_count=?,published_count=?,duration_seconds=?,error=? WHERE run_id=?", (finished, status, *(counts[k] for k in ("input_count", "accepted_count", "rejected_count", "duplicate_count", "inserted_count", "updated_count", "unchanged_count", "published_count")), duration, error, run_id)); db.commit(); db.close()
-    report = {"run_id": run_id, "started_at": started_at, "finished_at": finished, "status": status, "duration_seconds": round(duration, 6), **counts, "error": error, "reconciliation": {"input_equals_accepted_plus_rejected_plus_duplicates": counts["input_count"] == counts["accepted_count"] + counts["rejected_count"] + counts["duplicate_count"], "accepted_are_source_events": counts["accepted_count"], "published_is_current_unique_products": counts["published_count"]}}
+    db.execute("UPDATE pipeline_runs SET finished_at=?,status=?,input_count=?,accepted_count=?,rejected_count=?,duplicate_count=?,unprocessed_count=?,inserted_count=?,updated_count=?,unchanged_count=?,published_count=?,duration_seconds=?,error=? WHERE run_id=?", (finished, status, *(counts[k] for k in ("input_count", "accepted_count", "rejected_count", "duplicate_count", "unprocessed_count", "inserted_count", "updated_count", "unchanged_count", "published_count")), duration, error, run_id)); db.commit(); db.close()
+    report = {"run_id": run_id, "started_at": started_at, "finished_at": finished, "status": status, "duration_seconds": round(duration, 6), **counts, "error": error, "reconciliation": {"input_equals_accepted_plus_rejected_plus_duplicates_plus_unprocessed": counts["input_count"] == counts["accepted_count"] + counts["rejected_count"] + counts["duplicate_count"] + counts["unprocessed_count"], "accepted_are_source_events": counts["accepted_count"], "published_is_current_unique_products": counts["published_count"]}}
     LOG.info(json.dumps(report, sort_keys=True))
     if report_path:
         Path(report_path).parent.mkdir(parents=True, exist_ok=True); Path(report_path).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -219,5 +230,5 @@ def export_products(db_path: str | Path, output: str | Path) -> None:
         rows = db.execute("SELECT * FROM products ORDER BY product_id").fetchall()
     output = Path(output); output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["product_id", "name", "category", "price", "currency", "updated_at", "winning_source", "winning_record_id"])
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["product_id", "name", "category", "price", "currency", "updated_at", "winning_source", "winning_record_id"], lineterminator="\n")
         writer.writeheader(); writer.writerows([dict(r) for r in rows])

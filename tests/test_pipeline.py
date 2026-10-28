@@ -35,11 +35,23 @@ def test_happy_path_and_conflict_resolution(tmp_path):
         assert db.execute("select count(*) from product_history").fetchone()[0] == 1
 
 
+def test_supplier_a_wins_exact_timestamp_tie(tmp_path):
+    timestamp = "2025-01-02T00:00:00Z"
+    inp = setup_feed(tmp_path, [row(timestamp=timestamp, source_id="A-2", price="10")], [{"source_record_id": "B-1", "item_code": "B1", "title": "Gadget", "department": "home", "amount": 12, "currency": "USD", "updated_at": timestamp}], {"supplier_a:A1": "prod-tie", "supplier_b:B1": "prod-tie"})
+    report = run_pipeline(inp, tmp_path / "db.sqlite")
+    assert report["inserted_count"] == 1
+    with connect(tmp_path / "db.sqlite") as db:
+        p = db.execute("select price, winning_source, winning_record_id from products").fetchone()
+        assert tuple(p) == (10.0, "supplier_a", "A-2")
+
+
 def test_idempotent_repeated_input(tmp_path):
     inp = setup_feed(tmp_path, [row()])
     dbpath = tmp_path / "db.sqlite"
     first = run_pipeline(inp, dbpath); second = run_pipeline(inp, dbpath)
     assert first["inserted_count"] == 1 and second["duplicate_count"] == 1
+    assert first["run_id"] != second["run_id"]
+    assert first["started_at"].endswith("Z") and first["finished_at"].endswith("Z")
     with connect(dbpath) as db:
         assert db.execute("select count(*) from products").fetchone()[0] == 1
         assert db.execute("select count(*) from product_history").fetchone()[0] == 1
@@ -57,7 +69,8 @@ def test_missing_null_unknown_category_and_extra_columns(tmp_path):
     r = row(category="not a category", unused="surprise"); r["name"] = None
     inp = setup_feed(tmp_path, [r]); result = run_pipeline(inp, tmp_path / "db.sqlite")
     assert result["rejected_count"] == 1
-    assert "missing_required_fields" in result["reconciliation"].__str__() or result["input_count"] == 1
+    with connect(tmp_path / "db.sqlite") as db:
+        assert db.execute("select reason from quarantine").fetchone()[0] == "missing_required_fields: name"
     assert normalize("supplier_a", {**row(), "category": "bogus"})[0]["category"] == "unknown"
 
 
@@ -74,7 +87,8 @@ def test_duplicate_source_key_and_reproducibility(tmp_path):
     result = run_pipeline(inp, tmp_path / "db.sqlite")
     assert result["accepted_count"] == 1 and result["rejected_count"] == 1
     a, b = tmp_path / "a", tmp_path / "b"
-    generate(a, 40, 99); generate(b, 40, 99)
+    stats_a = generate(a, 40, 99); stats_b = generate(b, 40, 99)
+    assert stats_a == stats_b and stats_a["rejected_edge_records"] == 6
     assert (a / "supplier_a.csv").read_bytes() == (b / "supplier_a.csv").read_bytes()
     assert (a / "supplier_b.json").read_bytes() == (b / "supplier_b.json").read_bytes()
 
@@ -85,7 +99,9 @@ def test_empty_batch_and_transaction_rollback(tmp_path):
     assert empty["status"] == "succeeded" and empty["published_count"] == 0
     setup_feed(tmp_path, [row()])
     result = run_pipeline(inp, tmp_path / "rollback.sqlite", fail_after=1)
-    assert result["status"] == "failed"
+    assert result["status"] == "failed" and result["unprocessed_count"] == 1
+    assert result["accepted_count"] == 0
+    assert result["reconciliation"]["input_equals_accepted_plus_rejected_plus_duplicates_plus_unprocessed"]
     with connect(tmp_path / "rollback.sqlite") as db:
         assert db.execute("select count(*) from products").fetchone()[0] == 0
         assert db.execute("select status from pipeline_runs").fetchone()[0] == "failed"
@@ -138,4 +154,29 @@ def test_unheaded_extra_csv_values_remain_in_lineage(tmp_path):
     with connect(tmp_path / "db.sqlite") as db:
         raw = json.loads(db.execute("select raw_json from source_events").fetchone()[0])
         assert raw["_extra_fields"] == ["extra"]
+
+
+def test_malformed_mapping_fails_run_and_reconciles_unprocessed(tmp_path):
+    inp = setup_feed(tmp_path, [row()])
+    (tmp_path / "reference" / "product_mappings.json").write_text("[]")
+    result = run_pipeline(inp, tmp_path / "db.sqlite")
+    assert result["status"] == "failed"
+    assert "must be an object" in result["error"]
+    assert result["unprocessed_count"] == 1
+    with connect(tmp_path / "db.sqlite") as db:
+        run = db.execute("select status, accepted_count, unprocessed_count, error from pipeline_runs").fetchone()
+        assert run[0] == "failed" and run[1] == 0 and run[2] == 1
+
+
+def test_generated_edge_dataset_reconciles_actual_rejections(tmp_path):
+    inputs = tmp_path / "data" / "input"
+    stats = generate(inputs, 40, 1729)
+    result = run_pipeline(inputs, tmp_path / "fresh.sqlite")
+    assert result["input_count"] == stats["input_records"] == 48
+    assert result["accepted_count"] == 42 and result["rejected_count"] == 6
+    assert result["published_count"] == 10 and result["reconciliation"]["input_equals_accepted_plus_rejected_plus_duplicates_plus_unprocessed"]
+    with connect(tmp_path / "fresh.sqlite") as db:
+        assert db.execute("select count(*) from quarantine").fetchone()[0] == 6
+        assert db.execute("select count(*) from products").fetchone()[0] == 10
+        assert db.execute("select count(*) from source_events").fetchone()[0] == 42
 

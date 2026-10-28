@@ -1,21 +1,22 @@
 {
-  "run_id": "990aa48e-cbc5-43ec-a580-b7560e6a30f3",
-  "started_at": "2026-10-28T06:32:30.259267Z",
-  "finished_at": "2026-10-28T06:32:30.265238Z",
+  "run_id": "b42c5b59-5ef0-486d-885c-ca813fcd9022",
+  "started_at": "2026-10-28T06:43:31.500357Z",
+  "finished_at": "2026-10-28T06:43:31.506101Z",
   "status": "succeeded",
-  "duration_seconds": 0.005977,
-  "input_count": 40,
-  "accepted_count": 40,
-  "rejected_count": 0,
+  "duration_seconds": 0.00575,
+  "input_count": 48,
+  "accepted_count": 42,
+  "rejected_count": 6,
   "duplicate_count": 0,
+  "unprocessed_count": 0,
   "inserted_count": 10,
   "updated_count": 0,
   "unchanged_count": 0,
   "published_count": 10,
   "error": null,
   "reconciliation": {
-    "input_equals_accepted_plus_rejected_plus_duplicates": true,
-    "accepted_are_source_events": 40,
+    "input_equals_accepted_plus_rejected_plus_duplicates_plus_unprocessed": true,
+    "accepted_are_source_events": 42,
     "published_is_current_unique_products": 10
   }
 }

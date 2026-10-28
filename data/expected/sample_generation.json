@@ -1,6 +1,9 @@
 {
-  "supplier_a": 20,
-  "supplier_b": 20,
-  "input_records": 40,
-  "expected_unique_products": 10
+  "label": "Generator counts for --records 40 --seed 1729; eight deterministic edge rows are appended",
+  "supplier_a": 24,
+  "supplier_b": 24,
+  "input_records": 48,
+  "expected_unique_products": 10,
+  "accepted_edge_records": 2,
+  "rejected_edge_records": 6
 }

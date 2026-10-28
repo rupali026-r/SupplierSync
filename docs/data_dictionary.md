@@ -1,15 +1,32 @@
 # Data dictionary
 
-All tables are created by `suppliersync.pipeline.SCHEMA`. Timestamps are UTC ISO-8601 strings ending in `Z`. Identifiers are text. JSON columns hold serialized objects.
+Tables are created by `suppliersync.pipeline.SCHEMA`. SQLite uses its normal dynamic typing; the declared affinities below are `TEXT`, `INTEGER`, and `REAL`. Times are UTC ISO-8601 text ending in `Z`. SQL `NOT NULL` fields are required. JSON payloads are serialized as text. Tables have no cascade deletes.
 
-| Table | Purpose and important fields | Keys/constraints |
-|---|---|---|
-| `products` | Current canonical `product_id`, `name`, normalized `category`, positive `price`, `currency`, `updated_at`, `winning_source`, `winning_record_id` | `product_id` primary key; price check > 0 |
-| `source_events` | Immutable accepted source observation including supplier, source file/key, source timestamp, product, raw and normalized JSON, run ID, outcome | `event_id` primary key; `fingerprint` unique |
-| `quarantine` | Rejected payload with supplier, file, source key, reason and creation time | `quarantine_id` primary key; fingerprint unique |
-| `product_history` | Old/new canonical projection and event causing the change | history ID primary key; `(product_id, source_event_id)` unique |
-| `pipeline_runs` | Start/end/status, reconciliation counts, duration and error | run ID primary key |
+## Tables
 
-Supplier A requires `sku,name,category,price,currency,updated_at`; Supplier B requires `item_code,title,department,amount,currency,updated_at`. `source_record_id` is optional and falls back to the one-based CSV data row number (header is row 1) or JSON array index. Extra fields remain in raw JSON. Unknown categories are normalized to `unknown`, not rejected. `data/reference/product_mappings.json` maps `supplier_name:source_code` to a shared canonical product ID; a present mapping file makes unmapped codes invalid. Without it, supplier-scoped deterministic IDs prevent accidental cross-supplier joins.
+| Table | Column | SQLite type | Null? | Key or rule |
+|---|---|---|---|---|
+| `products` | `product_id` | TEXT | No | Primary key; explicit canonical ID |
+| | `name`, `category`, `currency`, `updated_at`, `winning_source`, `winning_record_id` | TEXT | No | Current canonical values and selected source |
+| | `price` | REAL | No | `CHECK(price > 0)` |
+| `source_events` | `event_id` | TEXT | No | Primary key; stable event digest |
+| | `fingerprint` | TEXT | No | Unique; digest of supplier, source record ID, and raw row |
+| | `supplier`, `source_file`, `source_record_id`, `source_updated_at`, `product_id`, `raw_json`, `normalized_json`, `run_id`, `outcome` | TEXT | No | Source lineage; raw and normalized values |
+| `quarantine` | `quarantine_id` | TEXT | No | Primary key |
+| | `fingerprint` | TEXT | No | Unique rejected-observation digest |
+| | `run_id`, `supplier`, `source_file`, `source_record_id`, `reason`, `raw_json`, `created_at` | TEXT | No | Rejection context and preserved payload |
+| `product_history` | `history_id` | TEXT | No | Primary key |
+| | `product_id`, `run_id`, `changed_at`, `old_json`, `new_json`, `source_event_id` | TEXT | No | Before/after snapshots and cause |
+| | `(product_id, source_event_id)` | — | — | Unique; prevents duplicate history per event |
+| `pipeline_runs` | `run_id` | TEXT | No | Primary key; UUID |
+| | `started_at`, `finished_at`, `status`, `error` | TEXT | `finished_at`, `error` can be NULL | UTC lifecycle and failure details |
+| | `input_count`, `accepted_count`, `rejected_count`, `duplicate_count`, `unprocessed_count`, `inserted_count`, `updated_count`, `unchanged_count`, `published_count` | INTEGER | No | Counters default to zero |
+| | `duration_seconds` | REAL | Yes | Elapsed wall time |
 
-Foreign key relationships are represented by IDs in event/history records; the SQLite schema enables foreign keys but does not currently declare all these relationships as SQL foreign keys. This makes ingestion resilient to source history retention and avoids cascade deletion.
+`idx_events_product` indexes `source_events(product_id)`. Unique indexes are created for source event fingerprints and `(product_id, source_event_id)` history pairs. `pipeline_runs` has an additive migration for `unprocessed_count` when opening a database created by the earlier schema version.
+
+## Feed schemas and relationships
+
+Supplier A is `supplier_a.csv` with required `sku,name,category,price,currency,updated_at`. Supplier B is `supplier_b.json`, a JSON array with `item_code,title,department,amount,currency,updated_at`. `source_record_id` is optional; fallback IDs are the CSV data row number (header is line 1) and the one-based JSON array index. Source IDs are converted to text.
+
+Extra named columns and extra unheaded CSV values are accepted and preserved in `raw_json`; missing required fields reject each affected row. Unknown categories normalize to `unknown`. Invalid/non-finite/zero/negative prices and timezone-naive/invalid timestamps are rejected. The optional `data/reference/product_mappings.json` maps `supplier_name:source_code` to a non-empty canonical product ID. When present, a missing code mapping is rejected. When absent, supplier-scoped hashes prevent cross-supplier merges. Product IDs and run IDs in other tables reference these IDs logically; the schema does not currently declare SQL foreign-key constraints. History `source_event_id` identifies the event causing a canonical change. All rejected rows retain supplier, filename, source identifier, raw payload, and reason.

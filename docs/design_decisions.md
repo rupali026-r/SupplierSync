@@ -12,11 +12,11 @@ Input filenames are fixed to the two documented suppliers. A malformed JSON file
 
 ## Recovery, performance, limitations
 
-One SQLite transaction covers a run's accepted source events, rejected rows, canonical writes and history. Failure rolls back those writes, then stores a failed operational run row. Retrying the same input is safe after success because of unique fingerprints. A failure after rollback will retry all input. There is no concurrent writer coordination beyond SQLite's `BEGIN IMMEDIATE`, no schema evolution framework, and no durable external object store for raw files; source payloads are embedded in SQLite.
+One SQLite transaction covers a run's accepted source events, rejected rows, canonical writes and history. Failure rolls back those writes, then stores a failed operational run row. Failed-run metrics count only committed accepted/rejected rows and explicitly classify rolled-back inputs as unprocessed; previously seen duplicates remain counted. Retrying the same input is safe after success because of unique fingerprints. A failure after rollback will retry all input. There is no concurrent writer coordination beyond SQLite's `BEGIN IMMEDIATE`, no schema evolution framework beyond the additive run-metric column migration, and no durable external object store for raw files; source payloads are embedded in SQLite.
 
 Input files and valid candidates are materialized in memory to allow deterministic conflict selection across supplier feeds. This is simple and reproducible, but memory grows with batch size. A reasonable next optimization is bounded-memory staging to a temporary SQLite table plus indexed winner selection; it trades implementation complexity and extra disk I/O for lower RAM use.
 
-Synthetic data includes reproducible supplier rows and code mappings. The generator currently creates valid rows at scale; edge-case invalid data is covered by tests and can be added to hand-curated feeds. No production data is used.
+Synthetic data includes reproducible supplier rows and code mappings plus deterministic edge cases: duplicate source keys, missing/null fields, non-finite and nonnumeric prices, a malformed JSON row, an unmapped product code, an unknown category, an unexpected column, and older/changed observations. The benchmark includes those edge rows. No production data is used.
 
 ## Interview discussion
 

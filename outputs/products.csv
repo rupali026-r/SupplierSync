@@ -1,5 +1,5 @@
 product_id,name,category,price,currency,updated_at,winning_source,winning_record_id
-product-000000,Item 0000,home,304.57,USD,2025-01-01T00:30:00Z,supplier_b,B-0000010
+product-000000,Item 0000,unknown,999.0,USD,2026-01-01T00:00:00Z,supplier_b,B-edge-category
 product-000001,Item 0001,home,473.08,USD,2025-01-01T00:31:00Z,supplier_b,B-0000011
 product-000002,Item 0002,apparel,482.55,USD,2025-01-01T00:32:00Z,supplier_b,B-0000012
 product-000003,Item 0003,books,176.85,USD,2025-01-01T00:33:00Z,supplier_b,B-0000013

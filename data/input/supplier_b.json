@@ -178,5 +178,33 @@
     "amount": 478.43,
     "currency": "USD",
     "updated_at": "2025-01-01T00:39:00Z"
+  },
+  {
+    "source_record_id": "B-edge-null",
+    "item_code": "B000000",
+    "title": null,
+    "department": "home",
+    "amount": 5,
+    "currency": "USD",
+    "updated_at": "2025-02-01T00:00:00Z"
+  },
+  {
+    "source_record_id": "B-edge-ref",
+    "item_code": "B-unmapped",
+    "title": "Unmapped",
+    "department": "home",
+    "amount": 5,
+    "currency": "USD",
+    "updated_at": "2025-02-01T00:00:00Z"
+  },
+  null,
+  {
+    "source_record_id": "B-edge-category",
+    "item_code": "B000000",
+    "title": "Item 0000",
+    "department": "mystery",
+    "amount": 999.0,
+    "currency": "USD",
+    "updated_at": "2026-01-01T00:00:00Z"
   }
 ]
