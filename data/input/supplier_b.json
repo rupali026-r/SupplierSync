@@ -1,0 +1,182 @@
+[
+  {
+    "source_record_id": "B-0000000",
+    "item_code": "B000000",
+    "title": "Item 0000",
+    "department": "home",
+    "amount": 275.27,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:20:00Z"
+  },
+  {
+    "source_record_id": "B-0000001",
+    "item_code": "B000001",
+    "title": "Item 0001",
+    "department": "home",
+    "amount": 202.21,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:21:00Z"
+  },
+  {
+    "source_record_id": "B-0000002",
+    "item_code": "B000002",
+    "title": "Item 0002",
+    "department": "apparel",
+    "amount": 30.08,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:22:00Z"
+  },
+  {
+    "source_record_id": "B-0000003",
+    "item_code": "B000003",
+    "title": "Item 0003",
+    "department": "books",
+    "amount": 28.12,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:23:00Z"
+  },
+  {
+    "source_record_id": "B-0000004",
+    "item_code": "B000004",
+    "title": "Item 0004",
+    "department": "electronics",
+    "amount": 444.54,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:24:00Z"
+  },
+  {
+    "source_record_id": "B-0000005",
+    "item_code": "B000005",
+    "title": "Item 0005",
+    "department": "apparel",
+    "amount": 303.57,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:25:00Z"
+  },
+  {
+    "source_record_id": "B-0000006",
+    "item_code": "B000006",
+    "title": "Item 0006",
+    "department": "apparel",
+    "amount": 470.71,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:26:00Z"
+  },
+  {
+    "source_record_id": "B-0000007",
+    "item_code": "B000007",
+    "title": "Item 0007",
+    "department": "books",
+    "amount": 489.18,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:27:00Z"
+  },
+  {
+    "source_record_id": "B-0000008",
+    "item_code": "B000008",
+    "title": "Item 0008",
+    "department": "electronics",
+    "amount": 461.16,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:28:00Z"
+  },
+  {
+    "source_record_id": "B-0000009",
+    "item_code": "B000009",
+    "title": "Item 0009",
+    "department": "home",
+    "amount": 447.74,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:29:00Z"
+  },
+  {
+    "source_record_id": "B-0000010",
+    "item_code": "B000000",
+    "title": "Item 0000",
+    "department": "home",
+    "amount": 304.57,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:30:00Z"
+  },
+  {
+    "source_record_id": "B-0000011",
+    "item_code": "B000001",
+    "title": "Item 0001",
+    "department": "home",
+    "amount": 473.08,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:31:00Z"
+  },
+  {
+    "source_record_id": "B-0000012",
+    "item_code": "B000002",
+    "title": "Item 0002",
+    "department": "apparel",
+    "amount": 482.55,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:32:00Z"
+  },
+  {
+    "source_record_id": "B-0000013",
+    "item_code": "B000003",
+    "title": "Item 0003",
+    "department": "books",
+    "amount": 176.85,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:33:00Z"
+  },
+  {
+    "source_record_id": "B-0000014",
+    "item_code": "B000004",
+    "title": "Item 0004",
+    "department": "electronics",
+    "amount": 475.44,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:34:00Z"
+  },
+  {
+    "source_record_id": "B-0000015",
+    "item_code": "B000005",
+    "title": "Item 0005",
+    "department": "apparel",
+    "amount": 284.5,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:35:00Z"
+  },
+  {
+    "source_record_id": "B-0000016",
+    "item_code": "B000006",
+    "title": "Item 0006",
+    "department": "apparel",
+    "amount": 287.94,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:36:00Z"
+  },
+  {
+    "source_record_id": "B-0000017",
+    "item_code": "B000007",
+    "title": "Item 0007",
+    "department": "books",
+    "amount": 485.06,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:37:00Z"
+  },
+  {
+    "source_record_id": "B-0000018",
+    "item_code": "B000008",
+    "title": "Item 0008",
+    "department": "electronics",
+    "amount": 230.33,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:38:00Z"
+  },
+  {
+    "source_record_id": "B-0000019",
+    "item_code": "B000009",
+    "title": "Item 0009",
+    "department": "home",
+    "amount": 478.43,
+    "currency": "USD",
+    "updated_at": "2025-01-01T00:39:00Z"
+  }
+]

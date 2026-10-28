@@ -1,0 +1,22 @@
+{
+  "supplier_a:A-000000": "product-000000",
+  "supplier_a:A-000001": "product-000001",
+  "supplier_a:A-000002": "product-000002",
+  "supplier_a:A-000003": "product-000003",
+  "supplier_a:A-000004": "product-000004",
+  "supplier_a:A-000005": "product-000005",
+  "supplier_a:A-000006": "product-000006",
+  "supplier_a:A-000007": "product-000007",
+  "supplier_a:A-000008": "product-000008",
+  "supplier_a:A-000009": "product-000009",
+  "supplier_b:B000000": "product-000000",
+  "supplier_b:B000001": "product-000001",
+  "supplier_b:B000002": "product-000002",
+  "supplier_b:B000003": "product-000003",
+  "supplier_b:B000004": "product-000004",
+  "supplier_b:B000005": "product-000005",
+  "supplier_b:B000006": "product-000006",
+  "supplier_b:B000007": "product-000007",
+  "supplier_b:B000008": "product-000008",
+  "supplier_b:B000009": "product-000009"
+}

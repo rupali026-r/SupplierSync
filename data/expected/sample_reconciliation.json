@@ -1,0 +1,12 @@
+{
+  "label": "Expected reconciliation for the default generated sample (40 records, seed 1729), on a fresh database",
+  "input_count": 40,
+  "accepted_count": 40,
+  "rejected_count": 0,
+  "duplicate_count": 0,
+  "inserted_count": 10,
+  "updated_count": 0,
+  "unchanged_count": 0,
+  "published_count": 10,
+  "reconciliation_balances": true
+}

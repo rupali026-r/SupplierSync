@@ -1,0 +1,24 @@
+# Architecture
+
+```mermaid
+flowchart LR
+  A[Supplier A CSV] --> I[Input discovery and parsing]
+  B[Supplier B JSON] --> I
+  M[Explicit product mappings] --> N[Normalize and validate]
+  I --> N
+  N -->|Invalid| Q[Quarantine with raw payload and reason]
+  N -->|Valid| D[Fingerprint and deduplicate]
+  D -->|New source event| L[Source event lineage]
+  L --> C[Deterministic conflict resolution]
+  C --> P[SQLite canonical products]
+  P --> H[Product change history]
+  D --> R[Run metrics and reconciliation]
+  Q --> R
+  P --> R
+  R --> J[JSON run report]
+  P --> E[CSV export]
+```
+
+The CLI discovers known supplier filenames (`supplier_a.csv` and `supplier_b.json`), parses rows, validates the supplier-specific schema, standardizes values, resolves explicit product mappings, and stages accepted events and quarantine records in SQLite. The current canonical row is selected among newly observed records per product by latest `updated_at`; timestamp ties use supplier A before supplier B, then ascending source record ID. Only a changed canonical projection creates a history row. The transaction protects the publish of event, quarantine, history, and product state.
+
+For a compact single-process assessment workload, the implementation reads parsed records into memory before publishing. The benchmark measures this real path. A future streaming/batched staging design would reduce peak memory at the cost of more complex cross-file deterministic selection and transaction management.

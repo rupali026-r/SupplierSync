@@ -1,0 +1,6 @@
+{
+  "supplier_a": 20,
+  "supplier_b": 20,
+  "input_records": 40,
+  "expected_unique_products": 10
+}

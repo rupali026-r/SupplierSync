@@ -1,0 +1,11 @@
+product_id,name,category,price,currency,updated_at,winning_source,winning_record_id
+product-000000,Item 0000,home,304.57,USD,2025-01-01T00:30:00Z,supplier_b,B-0000010
+product-000001,Item 0001,home,473.08,USD,2025-01-01T00:31:00Z,supplier_b,B-0000011
+product-000002,Item 0002,apparel,482.55,USD,2025-01-01T00:32:00Z,supplier_b,B-0000012
+product-000003,Item 0003,books,176.85,USD,2025-01-01T00:33:00Z,supplier_b,B-0000013
+product-000004,Item 0004,electronics,475.44,USD,2025-01-01T00:34:00Z,supplier_b,B-0000014
+product-000005,Item 0005,apparel,284.5,USD,2025-01-01T00:35:00Z,supplier_b,B-0000015
+product-000006,Item 0006,apparel,287.94,USD,2025-01-01T00:36:00Z,supplier_b,B-0000016
+product-000007,Item 0007,books,485.06,USD,2025-01-01T00:37:00Z,supplier_b,B-0000017
+product-000008,Item 0008,electronics,230.33,USD,2025-01-01T00:38:00Z,supplier_b,B-0000018
+product-000009,Item 0009,home,478.43,USD,2025-01-01T00:39:00Z,supplier_b,B-0000019
