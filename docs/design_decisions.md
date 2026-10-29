@@ -21,3 +21,9 @@ Synthetic data includes reproducible supplier rows and code mappings plus determ
 ## Interview discussion
 
 Explain the distinction between source-event deduplication (same supplier observation) and entity resolution (explicit mapping to the same product). Discuss the deterministic tie-break rule, why losing source values are still retained, and how the transaction and unique fingerprint constraints make retries safe. The winner policy is intentionally simple and would typically become configurable by attribute, supplier quality, effective date, and business ownership in production.
+
+## Dashboard boundary and safety
+
+The Streamlit app calls the supported CLI rather than reproducing validation or publishing logic. Dashboard queries open existing SQLite files read-only; they do not run schema creation or migrations. Filters pass user values as SQL parameters. Dashboard writes default to `.suppliersync_demo/suppliersync_demo.db` and are started only by an explicit button action. The runner rejects the primary `data/suppliersync.db` path and paths outside the repository. Sample generation uses a unique directory and leaves existing user or tracked inputs in place. The app is unauthenticated and intended for local assessment use only.
+
+The current winner event is derived from the latest `product_history.source_event_id` for that product. This identifies the event that last changed the current projection. The schema does not store a winner flag per event, so it cannot reconstruct historic winner status at the time of every earlier run. Other rows are labelled as accepted observations rather than assigning them a past winner state.

@@ -2,12 +2,15 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 *.egg-info/
 __MACOSX/
 .DS_Store
 *.tmp
 *.temp
 *.log
+*.bak
+*.orig
 *.swp
 *.swo
 *~
@@ -32,3 +35,11 @@ id_ed25519*
 secrets/
 benchmark-*.json
 benchmark-*.csv
+/.suppliersync_demo/
+.streamlit/secrets.toml
+.streamlit/cache/
+reports/*.local.json
+.coverage
+htmlcov/
+tmp/
+temp/
