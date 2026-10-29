@@ -96,6 +96,10 @@ streamlit run app.py
 
 Open the local URL printed by Streamlit, usually [http://localhost:8501](http://localhost:8501). The dashboard starts with `data/input` selected. Use the sidebar's sample-generation control to create a fresh input set safely, or select another input directory inside the project. Press **Run Pipeline** to invoke the existing CLI.
 
+For real local files, choose **Upload supplier data** in the Dashboard menu. Upload all three files with these exact filenames: `supplier_a.csv`, `supplier_b.json`, and `product_mappings.json`. Each file is limited to 25 MB. The page checks UTF-8 text, CSV headers or JSON structure, shows file sizes and previews, and then lets you stage the batch. Once staged, the selected batch is shown in the sidebar; press **Run Pipeline** to process it. Missing or malformed files keep Run Pipeline disabled on this page. Rows with invalid business values can still be quarantined by the normal pipeline. The required columns and JSON shape are shown in the page's **Expected file layouts** section and match the tracked examples in `data/input/` and `data/reference/`.
+
+Uploads are written only to a new directory under `.suppliersync_demo/uploads/`, in the input/reference layout expected by the CLI. They are never copied over tracked examples. Uploaded content stays in the local project; it is not sent to a hosted service. To use a different batch, upload and stage it again. Generated samples remain a separate optional workflow.
+
 Dashboard executions write to `.suppliersync_demo/suppliersync_demo.db` and `.suppliersync_demo/latest.json` by default. They do not use `data/suppliersync.db`. Database inspection uses read-only SQLite connections. Product CSV, selected quarantine CSV, and run JSON downloads are generated from the selected database records. Press Ctrl+C in the terminal to stop Streamlit.
 
 Windows PowerShell uses the same launch command after activating `.venv`:
@@ -108,12 +112,12 @@ The dashboard accepts project-local input and output paths only. It blocks the p
 
 ## Demo workflow
 
-1. Install the `dev` and `dashboard` extras.
-2. Generate a deterministic sample with the CLI into a new ignored directory or use the dashboard's safe generator.
-3. Launch Streamlit with `streamlit run app.py`.
-4. Select the generated input directory and press **Run Pipeline**.
-5. Review run status, accepted/rejected/duplicate counts, and the reconciliation result.
-6. Browse canonical products and inspect their accepted source observations and product history.
+1. Install the `dev` and `dashboard` extras and launch Streamlit with `streamlit run app.py`.
+2. Either generate deterministic demo inputs or choose **Upload supplier data** and select the two feeds plus explicit product mapping.
+3. Review the upload filenames, sizes, validation messages, and previews; click **Stage and select this upload batch**.
+4. Confirm the selected input in the sidebar and press **Run Pipeline**.
+5. Review run status, accepted/rejected/duplicate counts, published products, and the reconciliation result.
+6. Browse canonical products and inspect accepted source observations and product history.
 7. Filter quarantine by supplier or rejection reason and inspect raw payloads.
 8. Run the same inputs again; persisted event fingerprints should classify them as duplicates.
 9. Download product and quarantine CSVs or a run JSON report.

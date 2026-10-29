@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -155,9 +156,158 @@ def test_safe_sample_generation_uses_new_directory_each_time(tmp_path):
     assert (second / "supplier_a.csv").is_file()
 
 
+def _valid_uploads():
+    return {
+        "supplier_a": (
+            "supplier_a.csv",
+            b"sku,name,category,price,currency,updated_at\nA-1,Widget,electronics,12.50,USD,2026-01-01T00:00:00Z\n",
+        ),
+        "supplier_b": (
+            "supplier_b.json",
+            b'[{"item_code":"B-1","title":"Widget","department":"electronics","amount":12.5,"currency":"USD","updated_at":"2026-01-01T00:00:00Z"}]',
+        ),
+        "mappings": (
+            "product_mappings.json",
+            b'{"supplier_a:A-1":"widget-1","supplier_b:B-1":"widget-1"}',
+        ),
+    }
+
+
+def test_upload_validation_and_safe_staging_feed_existing_pipeline(
+    tmp_path, monkeypatch
+):
+    uploads = _valid_uploads()
+    result = dashboard.validate_upload_batch(uploads)
+    assert result["valid"] is True
+    assert result["row_counts"] == {"supplier_a": 1, "supplier_b": 1}
+
+    project_root = tmp_path.resolve()
+    monkeypatch.setattr(dashboard, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(dashboard, "DEMO_ROOT", project_root / ".demo")
+    batch_id, inputs = dashboard.stage_upload_batch(uploads)
+    batch_root = inputs.parent
+    assert len(batch_id) == 32
+    assert (inputs / "supplier_a.csv").read_bytes() == uploads["supplier_a"][1]
+    assert (inputs / "supplier_b.json").read_bytes() == uploads["supplier_b"][1]
+    assert (batch_root / "reference" / "product_mappings.json").read_bytes() == uploads[
+        "mappings"
+    ][1]
+
+    output = tmp_path / ".demo" / "run.json"
+    run = dashboard.run_pipeline_cli(inputs, tmp_path / ".demo" / "run.sqlite", output)
+    assert run["status"] == "succeeded"
+    assert run["report"]["input_count"] == 2
+    assert run["report"]["accepted_count"] == 2
+    assert run["report"]["rejected_count"] == 0
+    assert run["report"]["published_count"] == 1
+    assert dashboard.reconciliation(run["report"])["balanced"] is True
+    assert (
+        len(
+            dashboard.get_lineage(tmp_path / ".demo" / "run.sqlite", "widget-1")[
+                "events"
+            ]
+        )
+        == 2
+    )
+
+
+@pytest.mark.parametrize(
+    ("role", "filename", "content", "message"),
+    [
+        ("supplier_a", "../supplier_a.csv", b"x", "unsafe filename"),
+        ("supplier_a", "supplier_a.csv", b"\xff", "valid UTF-8"),
+        (
+            "supplier_a",
+            "supplier_a.csv",
+            b"sku,name\nA-1,Widget\n",
+            "missing required columns",
+        ),
+        (
+            "supplier_a",
+            "supplier_a.csv",
+            b'sku,name,category,price,currency,updated_at\nA-1,"broken,electronics,1,USD,2026-01-01\n',
+            "malformed CSV",
+        ),
+        ("supplier_a", "supplier_a.csv", b"", "is empty"),
+        ("supplier_b", "supplier_b.json", b"{bad", "invalid JSON"),
+        ("mappings", "product_mappings.json", b"[]", "must contain a JSON object"),
+    ],
+)
+def test_upload_validation_rejects_malformed_or_unsafe_files(
+    role, filename, content, message
+):
+    uploads = _valid_uploads()
+    uploads[role] = (filename, content)
+    assert dashboard.validate_upload_batch(uploads)["valid"] is False
+    assert any(
+        message in error for error in dashboard.validate_upload_batch(uploads)["errors"]
+    )
+
+
+def test_upload_validation_requires_all_files_and_enforces_size():
+    assert not dashboard.validate_upload_batch({})["valid"]
+    uploads = _valid_uploads()
+    uploads["supplier_a"] = ("supplier_a.csv", b"x" * 11)
+    result = dashboard.validate_upload_batch(uploads, max_upload_bytes=10)
+    assert not result["valid"]
+    assert any("larger than" in message for message in result["errors"])
+
+
+def test_upload_staging_rejects_path_outside_project(tmp_path):
+    with pytest.raises(ValueError, match="inside the SupplierSync project"):
+        dashboard.stage_upload_batch(
+            _valid_uploads(),
+            demo_root=tmp_path / "outside",
+            project_root=tmp_path / "project",
+        )
+
+
+def test_streamlit_upload_page_stages_and_runs_selected_batch(tmp_path, monkeypatch):
+    streamlit = pytest.importorskip("streamlit.testing.v1")
+    source_root = dashboard.PROJECT_ROOT
+    demo_root = tmp_path.resolve() / ".demo"
+    monkeypatch.setattr(dashboard, "PROJECT_ROOT", tmp_path.resolve())
+    monkeypatch.setattr(dashboard, "DEMO_ROOT", demo_root)
+    monkeypatch.setattr(dashboard, "DEMO_DB", demo_root / "dashboard.sqlite")
+    monkeypatch.setattr(dashboard, "DEMO_REPORT", demo_root / "report.json")
+
+    app = streamlit.AppTest.from_file(str(source_root / "app.py"))
+    app.session_state["db_path_widget"] = str(dashboard.DEMO_DB)
+    app.run()
+    app.radio[0].set_value("Upload supplier data").run()
+    assert next(
+        button for button in app.button if button.label == "Run Pipeline"
+    ).disabled
+
+    mime_types = ("text/csv", "application/json", "application/json")
+    for index, (filename, content) in enumerate(_valid_uploads().values()):
+        app.file_uploader[index].set_value((filename, content, mime_types[index])).run()
+
+    assert not app.exception
+    assert not app.error
+    next(
+        button
+        for button in app.button
+        if button.label == "Stage and select this upload batch"
+    ).click().run()
+    assert not app.exception
+    assert app.session_state["selected_batch_id"]
+    assert Path(app.session_state["input_dir_widget"]).is_dir()
+    next(
+        button for button in app.button if button.label == "Run Pipeline"
+    ).click().run()
+    assert not app.exception
+    assert app.session_state["pipeline_result"]["status"] == "succeeded"
+    assert dashboard.get_runs(dashboard.DEMO_DB)[0]["input_count"] == 2
+
+
 def test_streamlit_page_starts_and_plain_rerun_does_not_run_pipeline():
     streamlit = pytest.importorskip("streamlit.testing.v1")
-    app = streamlit.AppTest.from_file(str(dashboard.PROJECT_ROOT / "app.py")).run()
+    app = streamlit.AppTest.from_file(str(dashboard.PROJECT_ROOT / "app.py"))
+    app.session_state["db_path_widget"] = str(
+        dashboard.PROJECT_ROOT / ".suppliersync_test_empty" / "empty.sqlite"
+    )
+    app.run()
     assert not app.exception
     assert any(
         item.value == "SupplierSync — Supplier Data Intelligence" for item in app.title

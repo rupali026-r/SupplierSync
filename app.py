@@ -15,6 +15,7 @@ from suppliersync.dashboard_data import (
     DEMO_DB,
     DEMO_REPORT,
     DEMO_ROOT,
+    MAX_UPLOAD_SIZE_MB,
     PROJECT_ROOT,
     csv_bytes,
     database_status,
@@ -27,18 +28,31 @@ from suppliersync.dashboard_data import (
     reconciliation,
     report_for_run,
     run_pipeline_cli,
+    stage_upload_batch,
     validate_database_path,
     validate_project_directory,
+    validate_upload_batch,
 )
 
 st.set_page_config(
     page_title="SupplierSync — Supplier Data Intelligence", layout="wide"
 )
 RUN_LOCK = threading.Lock()
-NAVIGATION = ("Overview", "Products", "Data quality", "Source lineage", "Run history")
+NAVIGATION = (
+    "Overview",
+    "Upload supplier data",
+    "Products",
+    "Data quality",
+    "Source lineage",
+    "Run history",
+)
 
 
 def _default_state() -> None:
+    pending_input = st.session_state.pop("pending_input_dir", None)
+    if pending_input:
+        st.session_state["input_dir"] = pending_input
+        st.session_state["input_dir_widget"] = pending_input
     st.session_state.setdefault("db_path", str(DEMO_DB))
     st.session_state.setdefault("input_dir", str(PROJECT_ROOT / "data" / "input"))
     st.session_state.setdefault("db_path_widget", str(DEMO_DB))
@@ -61,6 +75,128 @@ def _database_status(db_path: str) -> tuple[bool, str]:
     except ValueError as exc:
         return False, str(exc)
     return database_status(safe_path)
+
+
+def _uploaded_bytes(uploaded_file: Any) -> tuple[str, bytes] | None:
+    if uploaded_file is None:
+        return None
+    return uploaded_file.name, uploaded_file.getvalue()
+
+
+def _upload_page() -> bool:
+    st.header("Upload supplier data")
+    st.write(
+        "Upload the two supplier feeds and their explicit product-code mapping. "
+        "SupplierSync stages these files locally and processes them with the existing pipeline."
+    )
+    st.info(
+        "All three files are required. Uploaded rows still go through the pipeline's normal validation; individual invalid records are quarantined."
+    )
+    with st.expander("Expected file layouts", expanded=False):
+        st.markdown("**Supplier A — `supplier_a.csv`**")
+        st.code(
+            "sku,name,category,price,currency,updated_at\nA-001,Example,electronics,10.00,USD,2026-01-01T00:00:00Z"
+        )
+        st.caption(
+            "Optional column: `source_record_id`. Additional columns are retained in source lineage."
+        )
+        st.markdown("**Supplier B — `supplier_b.json`**")
+        st.code(
+            '[{"item_code":"B001","title":"Example","department":"electronics","amount":10.0,"currency":"USD","updated_at":"2026-01-01T00:00:00Z"}]',
+            language="json",
+        )
+        st.markdown("**Mappings — `product_mappings.json`**")
+        st.code(
+            '{"supplier_a:A-001":"product-001","supplier_b:B001":"product-001"}',
+            language="json",
+        )
+        st.caption(
+            "The mapping file must be alongside each feed's batch and uses the same supplier-code keys as the pipeline."
+        )
+
+    st.caption(
+        f"Maximum size: {MAX_UPLOAD_SIZE_MB} MB per file. Files are kept in this local project's ignored `.suppliersync_demo/uploads/` directory."
+    )
+    supplier_a = st.file_uploader(
+        "Supplier A feed (`supplier_a.csv`)",
+        type=["csv"],
+        max_upload_size=MAX_UPLOAD_SIZE_MB,
+        key="upload_supplier_a",
+        help="Upload the CSV with Supplier A's documented columns.",
+    )
+    supplier_b = st.file_uploader(
+        "Supplier B feed (`supplier_b.json`)",
+        type=["json"],
+        max_upload_size=MAX_UPLOAD_SIZE_MB,
+        key="upload_supplier_b",
+        help="Upload a JSON array containing Supplier B records.",
+    )
+    mappings = st.file_uploader(
+        "Product mappings (`product_mappings.json`)",
+        type=["json"],
+        max_upload_size=MAX_UPLOAD_SIZE_MB,
+        key="upload_product_mappings",
+        help="Upload an object mapping supplier codes to canonical product IDs.",
+    )
+    uploads = {
+        "supplier_a": _uploaded_bytes(supplier_a),
+        "supplier_b": _uploaded_bytes(supplier_b),
+        "mappings": _uploaded_bytes(mappings),
+    }
+    validation = validate_upload_batch(uploads)
+    st.subheader("Selected files")
+    if validation["files"]:
+        st.dataframe(
+            validation["files"],
+            hide_index=True,
+            alt="Selected upload filenames and file sizes",
+        )
+    for message in validation["errors"]:
+        st.error(message)
+    for message in validation["warnings"]:
+        st.warning(message)
+    for role, rows in validation["previews"].items():
+        count = validation["row_counts"].get(role)
+        description = f"{count} records" if count is not None else "Mapping preview"
+        st.markdown(f"**{role.replace('_', ' ').title()} — {description}**")
+        st.dataframe(
+            rows,
+            hide_index=True,
+            alt=f"Preview of {role.replace('_', ' ')} upload data",
+        )
+
+    active_batch_id = st.session_state.get("selected_batch_id")
+    already_selected = (
+        bool(validation["valid"])
+        and active_batch_id is not None
+        and st.session_state.get("selected_upload_signature") == validation["signature"]
+    )
+    if already_selected:
+        st.success(f"Upload batch `{active_batch_id}` is selected for processing.")
+        st.caption("Use **Run Pipeline** in the sidebar to process this batch.")
+        return True
+    if validation["valid"]:
+        st.success("All three files passed upload and structure checks.")
+        st.caption(
+            "Record-level business rules are applied by the pipeline when you run it."
+        )
+        if st.button(
+            "Stage and select this upload batch",
+            type="primary",
+            key="stage_upload_batch",
+        ):
+            try:
+                batch_id, input_dir = stage_upload_batch(uploads)
+                st.session_state["selected_batch_id"] = batch_id
+                st.session_state["selected_batch_dir"] = str(input_dir)
+                st.session_state["selected_upload_signature"] = validation["signature"]
+                st.session_state["pending_input_dir"] = str(input_dir)
+                st.rerun()
+            except (OSError, ValueError) as exc:
+                st.error(f"Could not stage this upload batch: {exc}")
+        return False
+    st.caption("Fix the upload errors above before staging or running these files.")
+    return False
 
 
 def _show_metrics(run: dict[str, Any], products: int) -> None:
@@ -103,7 +239,7 @@ def _show_metrics(run: dict[str, Any], products: int) -> None:
         )
 
 
-def _run_sidebar() -> None:
+def _run_sidebar(allow_run: bool = True) -> None:
     st.sidebar.header("Workspace")
     st.sidebar.caption("Dashboard writes use a separate demo database by default.")
     if st.sidebar.button(
@@ -115,6 +251,9 @@ def _run_sidebar() -> None:
             st.session_state.input_dir = str(input_dir)
             st.session_state.input_dir_widget = str(input_dir)
             st.session_state.generated_sample = stats
+            st.session_state.pop("selected_batch_id", None)
+            st.session_state.pop("selected_batch_dir", None)
+            st.session_state.pop("selected_upload_signature", None)
         except (OSError, ValueError) as exc:
             st.sidebar.error(f"Sample generation failed: {exc}")
     if st.session_state.get("generated_sample"):
@@ -129,6 +268,22 @@ def _run_sidebar() -> None:
     st.session_state.input_dir = st.sidebar.text_input(
         "Input directory", st.session_state.input_dir, key="input_dir_widget"
     )
+    selected_batch_dir = st.session_state.get("selected_batch_dir")
+    if (
+        selected_batch_dir
+        and Path(st.session_state.input_dir).expanduser().resolve()
+        != Path(selected_batch_dir).resolve()
+    ):
+        st.session_state.pop("selected_batch_id", None)
+        st.session_state.pop("selected_batch_dir", None)
+        st.session_state.pop("selected_upload_signature", None)
+        selected_batch_dir = None
+    if selected_batch_dir:
+        st.sidebar.info(
+            f"Selected upload batch: `{st.session_state.selected_batch_id}`"
+        )
+    else:
+        st.sidebar.caption("Selected input: local directory or generated sample")
     ok, message = _database_status(st.session_state.db_path)
     if ok:
         st.sidebar.success(message)
@@ -137,7 +292,13 @@ def _run_sidebar() -> None:
     st.sidebar.caption(f"Demo report: `{DEMO_REPORT.relative_to(PROJECT_ROOT)}`")
 
     st.sidebar.divider()
-    if st.sidebar.button("Run Pipeline", type="primary", use_container_width=True):
+    if st.sidebar.button(
+        "Run Pipeline",
+        type="primary",
+        width="stretch",
+        disabled=not allow_run,
+        help=None if allow_run else "Validate and stage all three upload files first.",
+    ):
         if RUN_LOCK.locked():
             st.sidebar.warning(
                 "A pipeline run is already in progress in this app process."
@@ -409,8 +570,9 @@ def main() -> None:
     _default_state()
     st.title("SupplierSync — Supplier Data Intelligence")
     st.write("Normalize, validate, reconcile, and publish multi-supplier product data.")
-    _run_sidebar()
     page = st.sidebar.radio("Dashboard", NAVIGATION, label_visibility="visible")
+    upload_ready = _upload_page() if page == "Upload supplier data" else None
+    _run_sidebar(allow_run=(page != "Upload supplier data" or bool(upload_ready)))
     db_path = st.session_state.db_path
     ok, message = _database_status(db_path)
     if not ok and Path(db_path).exists():
@@ -418,6 +580,8 @@ def main() -> None:
         return
     if page == "Overview":
         _overview(db_path)
+    elif page == "Upload supplier data":
+        pass
     elif page == "Products":
         _products(db_path)
     elif page == "Data quality":

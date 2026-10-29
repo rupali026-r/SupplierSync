@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import os
@@ -10,10 +11,13 @@ import sqlite3
 import subprocess
 import sys
 import time
-from collections.abc import Iterable
+import uuid
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+from .pipeline import EXPECTED
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEMO_ROOT = PROJECT_ROOT / ".suppliersync_demo"
@@ -30,6 +34,249 @@ COUNT_FIELDS = (
     "unchanged_count",
     "published_count",
 )
+MAX_UPLOAD_SIZE_MB = 25
+UPLOAD_SPECS = {
+    "supplier_a": ("supplier_a.csv", "supplier_a"),
+    "supplier_b": ("supplier_b.json", "supplier_b"),
+    "mappings": ("product_mappings.json", None),
+}
+
+
+def validate_upload_batch(
+    uploads: Mapping[str, tuple[str, bytes] | None],
+    max_upload_bytes: int = MAX_UPLOAD_SIZE_MB * 1024 * 1024,
+) -> dict[str, Any]:
+    """Validate filenames and file structure without writing uploaded data."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    files: list[dict[str, Any]] = []
+    previews: dict[str, list[dict[str, Any]]] = {}
+    unexpected_roles = sorted(set(uploads) - set(UPLOAD_SPECS))
+    if unexpected_roles:
+        errors.append("Unsupported upload roles were supplied.")
+
+    for role, (expected_name, supplier) in UPLOAD_SPECS.items():
+        selected = uploads.get(role)
+        if selected is None:
+            errors.append(f"Upload required file `{expected_name}`.")
+            continue
+        filename, content = selected
+        files.append(
+            {
+                "role": role,
+                "filename": filename,
+                "size_bytes": len(content),
+                "size_mb": round(len(content) / (1024 * 1024), 2),
+            }
+        )
+        if (
+            not filename
+            or Path(filename).name != filename
+            or "/" in filename
+            or "\\" in filename
+            or "\x00" in filename
+        ):
+            errors.append(
+                f"{role}: unsafe filename. Upload the file by its expected name."
+            )
+            continue
+        if filename != expected_name:
+            errors.append(f"Expected `{expected_name}`, received `{filename}`.")
+            continue
+        if len(content) > max_upload_bytes:
+            errors.append(
+                f"{filename} is larger than the {max_upload_bytes // (1024 * 1024)} MB per-file limit."
+            )
+            continue
+        if not content:
+            errors.append(f"{filename} is empty.")
+            continue
+        try:
+            text = content.decode("utf-8-sig" if filename.endswith(".csv") else "utf-8")
+        except UnicodeDecodeError:
+            errors.append(f"{filename} is not valid UTF-8 text.")
+            continue
+
+        if role == "supplier_a":
+            try:
+                reader = csv.reader(io.StringIO(text, newline=""), strict=True)
+                header = next(reader, None)
+                if not header:
+                    errors.append(f"{filename} has no CSV header row.")
+                    continue
+                if len(header) != len(set(header)):
+                    errors.append(f"{filename} contains duplicate column names.")
+                    continue
+                missing = sorted(EXPECTED[supplier] - set(header))
+                if missing:
+                    errors.append(
+                        f"{filename} is missing required columns: {', '.join(missing)}."
+                    )
+                    continue
+                rows = list(reader)
+            except csv.Error as exc:
+                errors.append(f"{filename} is malformed CSV: {exc}")
+                continue
+            if not rows:
+                errors.append(f"{filename} contains a header but no input records.")
+                continue
+            preview = [dict(zip(header, row)) for row in rows[:8]]
+            previews[role] = preview
+            missing_rows = sum(
+                any(
+                    not str(dict(zip(header, row)).get(field, "")).strip()
+                    for field in EXPECTED[supplier]
+                )
+                for row in rows
+            )
+            if missing_rows:
+                warnings.append(
+                    f"{filename} has {missing_rows} records missing required values; the pipeline will quarantine them."
+                )
+            continue
+
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError as exc:
+            errors.append(
+                f"{filename} contains invalid JSON: {exc.msg} at line {exc.lineno}."
+            )
+            continue
+        if role == "supplier_b":
+            if not isinstance(value, list):
+                errors.append(
+                    f"{filename} must contain a JSON array of supplier records."
+                )
+                continue
+            if not value:
+                errors.append(f"{filename} contains no input records.")
+                continue
+            if not all(isinstance(record, dict) for record in value):
+                warnings.append(
+                    f"{filename} contains non-object rows; the pipeline will quarantine those records."
+                )
+            missing_rows = sum(
+                isinstance(record, dict)
+                and any(
+                    field not in record
+                    or record[field] is None
+                    or str(record[field]).strip() == ""
+                    for field in EXPECTED[supplier]
+                )
+                for record in value
+            )
+            if missing_rows:
+                warnings.append(
+                    f"{filename} has {missing_rows} records missing required values; the pipeline will quarantine them."
+                )
+            previews[role] = [
+                record if isinstance(record, dict) else {"_malformed": record}
+                for record in value[:8]
+            ]
+            continue
+
+        if not isinstance(value, dict):
+            errors.append(
+                f"{filename} must contain a JSON object of supplier-code mappings."
+            )
+            continue
+        if not value:
+            errors.append(f"{filename} contains no mappings.")
+            continue
+        invalid_keys = [
+            key
+            for key in value
+            if not isinstance(key, str)
+            or not key.strip()
+            or not any(
+                key.startswith(f"{supported_supplier}:")
+                and bool(key.partition(":")[2].strip())
+                for supported_supplier in EXPECTED
+            )
+        ]
+        invalid_values = [
+            key
+            for key, product_id in value.items()
+            if not isinstance(product_id, str) or not product_id.strip()
+        ]
+        if invalid_keys:
+            errors.append(
+                f"{filename} has invalid mapping keys; use `supplier_a:<code>` or `supplier_b:<code>`."
+            )
+        if invalid_values:
+            errors.append(
+                f"{filename} mapping values must be non-empty canonical product IDs."
+            )
+        previews[role] = [
+            {"supplier_code": key, "product_id": product_id}
+            for key, product_id in list(value.items())[:8]
+        ]
+
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "files": files,
+        "previews": previews,
+        "row_counts": {
+            role: len(rows)
+            for role, rows in previews.items()
+            if role in {"supplier_a", "supplier_b"}
+        },
+        "signature": _upload_signature(uploads),
+    }
+
+
+def _upload_signature(uploads: Mapping[str, tuple[str, bytes] | None]) -> str:
+    digest = hashlib.sha256()
+    for role in UPLOAD_SPECS:
+        selected = uploads.get(role)
+        if selected is not None:
+            filename, content = selected
+            digest.update(role.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(filename.encode("utf-8", errors="replace"))
+            digest.update(b"\0")
+            digest.update(content)
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def stage_upload_batch(
+    uploads: Mapping[str, tuple[str, bytes] | None],
+    demo_root: str | Path | None = None,
+    project_root: str | Path | None = None,
+) -> tuple[str, Path]:
+    """Stage a validated batch in the path layout expected by the pipeline."""
+    project = Path(project_root or PROJECT_ROOT).resolve()
+    root = Path(demo_root or DEMO_ROOT).resolve()
+    if not root.is_relative_to(project):
+        raise ValueError(
+            "Upload staging must stay inside the SupplierSync project directory."
+        )
+    validation = validate_upload_batch(uploads)
+    if not validation["valid"]:
+        raise ValueError(
+            "Cannot stage invalid uploads: " + " ".join(validation["errors"])
+        )
+
+    uploads_root = root / "uploads"
+    uploads_root.mkdir(parents=True, exist_ok=True)
+    batch_id = uuid.uuid4().hex
+    batch_root = uploads_root / batch_id
+    batch_root.mkdir(exist_ok=False)
+    input_dir = batch_root / "input"
+    reference_dir = batch_root / "reference"
+    input_dir.mkdir()
+    reference_dir.mkdir()
+    for role, (filename, content) in uploads.items():
+        target_dir = reference_dir if role == "mappings" else input_dir
+        expected_name = UPLOAD_SPECS[role][0]
+        if filename != expected_name:
+            raise ValueError(f"Unexpected upload filename for {role}.")
+        with (target_dir / expected_name).open("xb") as output:
+            output.write(content)
+    return batch_id, input_dir
 
 
 @contextmanager
